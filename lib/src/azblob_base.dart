@@ -164,7 +164,13 @@ class AzureStorage {
       );
 
       var response = await client.send(request);
-      var stream = onDone(response.stream, client.close);
+      var stream = onDone(
+        response.stream,
+        () {
+          client.close();
+          subscription?.cancel();
+        },
+      );
       return StreamedResponse(
         ByteStream(stream),
         response.statusCode,
