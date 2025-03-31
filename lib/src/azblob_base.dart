@@ -166,16 +166,19 @@ class AzureStorage {
           options: options,
           cancelToken: cancelToken,
         );
-        var stream = onDone<List<int>>(response.data.stream, client.close);
+        var stream = onDone<Uint8List>(response.data.stream, client.close);
+        final castedHeaders =
+            (response.data.headers as Map<String, List<String>>);
+        final responseHeaders = castedHeaders.map(
+          (key, value) => MapEntry(key, value.join(',')),
+        );
         return StreamedResponse(
           ByteStream(stream),
           response.data.statusCode,
           contentLength: response.data.contentLength,
-          request: response.data.request,
-          headers: response.data.headers,
+          request: request,
+          headers: responseHeaders,
           isRedirect: response.isRedirect,
-          persistentConnection: response.data.persistentConnection,
-          reasonPhrase: response.data.reasonPhrase,
         );
       } catch (_) {
         client.close();
