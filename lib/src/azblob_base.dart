@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'package:crypto/crypto.dart' as crypto;
+import 'package:http/http.dart';
 import 'package:http_parser/http_parser.dart';
 
 /// Blob type
@@ -144,10 +146,40 @@ class AzureStorage {
   }
 
   /// Get Blob.
-  Future<http.StreamedResponse> getBlob(String path) async {
+  Future<http.StreamedResponse> getBlob(
+    String path, {
+    Stream<bool>? isForceCloseController,
+  }) async {
     var request = http.Request('GET', uri(path: path));
     sign(request);
-    return request.send();
+    final client = Client();
+    StreamSubscription<bool>? subscription;
+    try {
+      subscription = isForceCloseController?.listen(
+        (isClose) {
+          if (isClose) {
+            client.close();
+          }
+        },
+      );
+
+      var response = await client.send(request);
+      var stream = onDone(response.stream, client.close);
+      return StreamedResponse(
+        ByteStream(stream),
+        response.statusCode,
+        contentLength: response.contentLength,
+        request: response.request,
+        headers: response.headers,
+        isRedirect: response.isRedirect,
+        persistentConnection: response.persistentConnection,
+        reasonPhrase: response.reasonPhrase,
+      );
+    } catch (_) {
+      subscription?.cancel();
+      client.close();
+      rethrow;
+    }
   }
 
   /// Delete Blob
@@ -251,4 +283,14 @@ class AzureStorage {
     var message = await res.stream.bytesToString();
     throw AzureStorageException(message, res.statusCode, res.headers);
   }
+
+  /// Calls [onDone] once [stream] (a single-subscription [Stream]) is finished.
+  ///
+  /// The return value, also a single-subscription [Stream] should be used in
+  /// place of [stream] after calling this method.
+  Stream<T> onDone<T>(Stream<T> stream, void Function() onDone) =>
+      stream.transform(StreamTransformer.fromHandlers(handleDone: (sink) {
+        sink.close();
+        onDone();
+      }));
 }
