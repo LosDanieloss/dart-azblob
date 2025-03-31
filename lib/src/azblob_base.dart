@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
+import 'package:dio/dio.dart';
 import 'package:http/http.dart' as http;
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:http/http.dart';
@@ -148,43 +149,57 @@ class AzureStorage {
   /// Get Blob.
   Future<http.StreamedResponse> getBlob(
     String path, {
-    Stream<bool>? isForceCloseController,
+    CancelToken? cancelToken,
   }) async {
     var request = http.Request('GET', uri(path: path));
     sign(request);
-    final client = Client();
-    StreamSubscription<bool>? subscription;
-    try {
-      subscription = isForceCloseController?.listen(
-        (isClose) {
-          if (isClose) {
-            client.close();
-          }
-        },
-      );
-
-      var response = await client.send(request);
-      var stream = onDone(
-        response.stream,
-        () {
-          client.close();
-          subscription?.cancel();
-        },
-      );
-      return StreamedResponse(
-        ByteStream(stream),
-        response.statusCode,
-        contentLength: response.contentLength,
-        request: response.request,
-        headers: response.headers,
-        isRedirect: response.isRedirect,
-        persistentConnection: response.persistentConnection,
-        reasonPhrase: response.reasonPhrase,
-      );
-    } catch (_) {
-      subscription?.cancel();
-      client.close();
-      rethrow;
+    if (cancelToken != null) {
+      final client = Dio();
+      try {
+        final options = Options(
+          responseType: ResponseType.stream,
+          method: request.method,
+          headers: request.headers,
+        );
+        var response = await client.get(
+          request.url.toString(),
+          options: options,
+          cancelToken: cancelToken,
+        );
+        var stream = onDone<List<int>>(response.data.stream, client.close);
+        return StreamedResponse(
+          ByteStream(stream),
+          response.data.statusCode,
+          contentLength: response.data.contentLength,
+          request: response.data.request,
+          headers: response.data.headers,
+          isRedirect: response.isRedirect,
+          persistentConnection: response.data.persistentConnection,
+          reasonPhrase: response.data.reasonPhrase,
+        );
+      } catch (_) {
+        client.close();
+        rethrow;
+      }
+    } else {
+      final client = Client();
+      try {
+        var response = await client.send(request);
+        var stream = onDone(response.stream, client.close);
+        return StreamedResponse(
+          ByteStream(stream),
+          response.statusCode,
+          contentLength: response.contentLength,
+          request: response.request,
+          headers: response.headers,
+          isRedirect: response.isRedirect,
+          persistentConnection: response.persistentConnection,
+          reasonPhrase: response.reasonPhrase,
+        );
+      } catch (_) {
+        client.close();
+        rethrow;
+      }
     }
   }
 
